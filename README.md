@@ -205,7 +205,7 @@ create table if not exists audit_log (
 
 ---
 
-## 4️⃣ Run the Application
+## 4️⃣Run the Application
 
 ```bash
 streamlit run app.py
@@ -219,7 +219,7 @@ http://localhost:8501
 
 ---
 
-# 📂 Project Structure
+# Project Structure
 
 ```
 ├── app.py
@@ -247,7 +247,7 @@ http://localhost:8501
 
 ---
 
-## 🔁 High-Level Flowchart (CLI Format)
+## High-Level Flowchart (CLI Format)
 
 ```bash
 +--------------------+
@@ -295,7 +295,7 @@ http://localhost:8501
 
 ---
 
-# 👥 Use Case Diagram (CLI UML Representation)
+# Use Case Diagram (CLI UML Representation)
 
 ```bash
 Actor: Investigator
@@ -324,7 +324,7 @@ Use Cases:
 
 ---
 
-# 🔎 System Architecture Diagram
+# System Architecture Diagram
 
                 ┌────────────────────────────┐
                 │   Claim Data Sources       │
@@ -375,7 +375,7 @@ Use Cases:
            │  • Investigation Workflow              │
            └────────────────────────────────────────┘
 
-# 🔎 Detailed Processing Pipeline
+# Detailed Processing Pipeline
 
 ### Step 1: Authentication
 
@@ -417,9 +417,9 @@ Examples:
 * Update dashboard metrics
 * Log audit activity
 
----
 
-# 📈 Dashboard Metrics
+
+# Dashboard Metrics
 
 * Total Claims
 * Fraudulent Claims
@@ -428,9 +428,9 @@ Examples:
 * Trend Over Time
 * Fraud Category Distribution
 
----
 
-# 🔐 Security Design
+
+# Security Design
 
 * Firebase Auth
 * Role-based access
@@ -438,9 +438,8 @@ Examples:
 * Cloud audit logs
 * Duplicate prevention logic
 
----
 
-# 🧪 Sample Fraud Scenarios Detected
+# Sample Fraud Scenarios Detected
 
 | Fraud Type       | Example                                |
 | ---------------- | -------------------------------------- |
@@ -449,9 +448,9 @@ Examples:
 | Fake Admission   | Demographic mismatch                   |
 | Inflated Billing | Cost ratio unusually high              |
 
----
 
-# 🧩 Future Enhancements
+
+# Future Enhancements
 
 * Hospital Risk Scoring
 * Geo-Fraud Heatmaps
@@ -460,9 +459,9 @@ Examples:
 * Role-based Admin Panel
 * Automated Investigation Report PDF Export
 
----
 
-# 🎯 Conclusion
+
+# Conclusion
 
 The **Ayushman Bharat Fraud Detection Dashboard** is a scalable, AI-powered fraud monitoring system that combines:
 
@@ -473,10 +472,3 @@ The **Ayushman Bharat Fraud Detection Dashboard** is a scalable, AI-powered frau
 * Real-Time Analytics
 
 It bridges the gap between raw anomaly detection and investigator-ready intelligence by translating risk signals into human-understandable explanations.
-
----
-
-# 📌 Built For
-
-Hackathon / Demonstration for strengthening fraud detection in the **Ayushman Bharat Pradhan Mantri Jan Arogya Yojana ecosystem.
-
