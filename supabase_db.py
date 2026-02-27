@@ -89,6 +89,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv()
 
@@ -100,17 +101,20 @@ _client = None
 # ══════════════════════════════════════════════════════════════
 #  CLIENT
 # ══════════════════════════════════════════════════════════════
+@st.cache_resource
 def init_supabase():
     global _client
     if _client is not None:
         return _client
     if not SUPABASE_URL or SUPABASE_URL == "your_supabase_url":
-        raise RuntimeError(
-            "Supabase not configured. Add SUPABASE_URL + SUPABASE_ANON_KEY to .env"
-        )
-    from supabase import create_client
-    _client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    return _client
+        return None
+    try:
+        from supabase import create_client
+        _client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        return _client
+    except Exception as e:
+        print(f"[Supabase] Connection error: {e}")
+        return None
 
 
 # ══════════════════════════════════════════════════════════════
@@ -158,6 +162,7 @@ def is_configured() -> bool:
 # ══════════════════════════════════════════════════════════════
 #  FETCH ALL CLAIMS  (paginated)
 # ══════════════════════════════════════════════════════════════
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_data_from_supabase(table: str = "claims",
                              page_size: int = 1000,
                              user_id: str = None) -> pd.DataFrame:
@@ -651,6 +656,7 @@ def upsert_detected_frauds(df: pd.DataFrame, user_id: str = None) -> dict:
         print(f"[Supabase] upsert_detected_frauds error: {e}")
         return {"status": "error", "error": str(e)}
 
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_detected_frauds(user_id: str = None) -> pd.DataFrame:
     """
     Fetch high-priority fraud cases for the 'Fraud Audit Report' page.
@@ -676,3 +682,25 @@ def fetch_detected_frauds(user_id: str = None) -> pd.DataFrame:
     except Exception as e:
         print(f"[Supabase] fetch_detected_frauds error: {e}")
         return pd.DataFrame()
+
+def update_claim_status(patient_id: str, status: str, user_id: str = None) -> bool:
+    """
+    Update the investigation status of a specific claim.
+    """
+    try:
+        client = init_supabase()
+        # Update both claims and detected_frauds to keep synced
+        client.table("claims").update({"Investigation_Status": status}).eq("PatientID", patient_id).execute()
+        client.table("detected_frauds").update({"Investigation_Status": status}).eq("PatientID", patient_id).execute()
+        
+        # Log the action
+        upsert_audit_log(
+            uid=user_id,
+            action="Status Update",
+            description=f"Status for Patient {patient_id} changed to '{status}'.",
+            patient_id=patient_id
+        )
+        return True
+    except Exception as e:
+        print(f"[Supabase] update_claim_status error: {e}")
+        return False

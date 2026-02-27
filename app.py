@@ -17,6 +17,42 @@ except ImportError:
     _ai_client = None
 
 # ============================================================
+#  FORENSIC RATE LIMITER (Streamlit Implementation)
+# ============================================================
+class RateLimiter:
+    def __init__(self):
+        if "rate_limit_data" not in st.session_state:
+            st.session_state.rate_limit_data = {}
+
+    def is_allowed(self, endpoint, limit, period=60):
+        """Checks if a request is allowed for a specific endpoint."""
+        now = time.time()
+        if endpoint not in st.session_state.rate_limit_data:
+            st.session_state.rate_limit_data[endpoint] = []
+        
+        # Clear old requests
+        st.session_state.rate_limit_data[endpoint] = [
+            t for t in st.session_state.rate_limit_data[endpoint] if now - t < period
+        ]
+        
+        if len(st.session_state.rate_limit_data[endpoint]) >= limit:
+            return False
+        
+        st.session_state.rate_limit_data[endpoint].append(now)
+        return True
+
+    def show_error(self):
+        st.error("🚫 Too many requests!")
+        st.markdown("""
+        <div style='background:#FEE2E2; border-left:5px solid #DC2626; padding:20px; border-radius:12px;'>
+            <div style='font-size:1.2rem; font-weight:800; color:#991B1B;'>Suno, thoda slow chalo.</div>
+            <div style='font-size:1rem; color:#B91C1C; margin-top:5px;'>Aapne limit cross kar di hai. Please wait for a while.</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+limiter = RateLimiter()
+
+# ============================================================
 #  LOGO / BRANDING
 # ============================================================
 @st.cache_data
@@ -46,7 +82,7 @@ st.markdown("""
 
 /* ── Reset ── */
 html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
-.stApp { background:#F3F4F6 !important; color:#1F2937 !important; }
+.stApp { background:#F3F4F6 !important; color:#000000 !important; }
 
 /* ── Hide default Streamlit elements ── */
 #MainMenu, footer, header { visibility:hidden; height:0; display:none; }
@@ -55,11 +91,15 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
 [data-testid="stDecoration"] { display:none; }
 .block-container { padding-top: 1.5rem !important; }
 
+/* ── Metrics Overrides ── */
+[data-testid="stMetricLabel"] > div { color: #000000 !important; font-weight: 700 !important; }
+[data-testid="stMetricValue"] > div { color: #000000 !important; font-weight: 800 !important; }
+
 /* ── Sidebar ── */
 [data-testid="stSidebar"] {
     background:#FFFFFF !important;
     border-right:1px solid #E5E7EB;
-    box-shadow:2px 0 12px rgba(22,163,74,.07);
+    box-shadow:2px 0 12px rgba(0,0,0,.04);
     width:240px !important;
 }
 [data-testid="stSidebar"] > div { padding:0 !important; }
@@ -67,11 +107,11 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
 /* ── Sidebar nav buttons ── */
 .stButton > button {
     background:transparent !important;
-    color:#4B5563 !important;
+    color:#000000 !important;
     border:none !important;
     border-radius:10px !important;
     font-size:.9rem !important;
-    font-weight:500 !important;
+    font-weight:600 !important;
     text-align:left !important;
     padding:10px 16px !important;
     width:100% !important;
@@ -79,12 +119,12 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
 }
 .stButton > button:hover {
     background:#DCFCE7 !important;
-    color:#16A34A !important;
+    color:#000000 !important;
 }
 .nav-active > .stButton > button {
     background:#DCFCE7 !important;
-    color:#16A34A !important;
-    font-weight:700 !important;
+    color:#000000 !important;
+    font-weight:800 !important;
 }
 
 /* ── Main metric cards ── */
@@ -93,7 +133,7 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
     border:1px solid #E5E7EB;
     border-radius:16px;
     padding:22px 24px;
-    box-shadow:0 2px 12px rgba(22,163,74,.06);
+    box-shadow:0 2px 12px rgba(0,0,0,.03);
     display:flex;
     justify-content:space-between;
     align-items:flex-start;
@@ -105,11 +145,11 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
     display:flex; align-items:center; justify-content:center;
     font-size:1.3rem;
 }
-.kpi-label { font-size:.9rem; font-weight:500; color:#1F2937; margin-bottom:6px; }
-.kpi-value { font-size:2.2rem; font-weight:800; color:#14532D; line-height:1; }
+.kpi-label { font-size:.9rem; font-weight:700; color:#000000; margin-bottom:6px; }
+.kpi-value { font-size:2.2rem; font-weight:800; color:#000000; line-height:1; }
 .kpi-delta-up   { font-size:.75rem; font-weight:700; color:#16A34A; margin-left:6px; }
 .kpi-delta-warn { font-size:.75rem; font-weight:700; color:#DC2626; margin-left:6px; }
-.kpi-sub   { font-size:.73rem; color:#1F2937; margin-top:4px; }
+.kpi-sub   { font-size:.73rem; color:#000000; margin-top:4px; }
 
 /* ── Section card ── */
 .section-card {
@@ -117,11 +157,11 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
     border:1px solid #E5E7EB;
     border-radius:16px;
     padding:22px 24px;
-    box-shadow:0 2px 12px rgba(22,163,74,.05);
+    box-shadow:0 2px 12px rgba(0,0,0,.03);
     margin-bottom:18px;
 }
 .section-title {
-    font-size:1.2rem; font-weight:700; color:#14532D;
+    font-size:1.2rem; font-weight:800; color:#000000;
     display:flex; align-items:center; gap:8px;
     margin-bottom:16px;
 }
@@ -133,7 +173,7 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
 /* ── Timeline ── */
 .timeline-item {
     display:flex; gap:14px; padding:12px 0;
-    border-bottom:1px solid #DCFCE7;
+    border-bottom:1px solid #F3F4F6;
 }
 .timeline-dot {
     width:36px; height:36px; border-radius:50%;
@@ -141,9 +181,9 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
     font-size:.9rem; flex-shrink:0;
     margin-top:2px;
 }
-.timeline-title { font-size:.88rem; font-weight:700; color:#14532D; }
-.timeline-time  { font-size:.72rem; font-weight:600; color:#1F2937; margin-left:8px; }
-.timeline-desc  { font-size:.8rem; color:#4B5563; margin-top:3px; line-height:1.5; }
+.timeline-title { font-size:.88rem; font-weight:800; color:#000000; }
+.timeline-time  { font-size:.72rem; font-weight:600; color:#000000; margin-left:8px; }
+.timeline-desc  { font-size:.8rem; color:#000000; margin-top:3px; line-height:1.5; }
 
 /* ── Feature Cards ── */
 .feat-card {
@@ -153,19 +193,19 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
 }
 .feat-card:hover { transform: translateY(-5px); }
 .feat-icon { font-size: 2rem; margin-bottom: 12px; color: #16A34A; }
-.feat-title { font-size: 1.25rem; font-weight: 800; color: #14532D; margin-bottom: 8px; }
-.feat-desc { font-size: 1.1rem; color: #1F2937; line-height: 1.6; }
+.feat-title { font-size: 1.25rem; font-weight: 800; color: #000000; margin-bottom: 8px; }
+.feat-desc { font-size: 1.1rem; color: #000000; line-height: 1.6; }
 
 /* ── Flagged claims table ── */
 .claims-table { width:100%; border-collapse:collapse; font-size:.83rem; }
 .claims-table th {
-    color:#1F2937; font-weight:700; font-size:.7rem;
+    color:#000000; font-weight:800; font-size:.7rem;
     text-transform:uppercase; letter-spacing:.6px;
-    padding:8px 12px; border-bottom:2px solid #DCFCE7;
+    padding:8px 12px; border-bottom:2px solid #F3F4F6;
     text-align:left;
 }
-.claims-table td { padding:12px 12px; border-bottom:1px solid #F9FAFB; }
-.claims-table tr:hover td { background:#F0FDF4; }
+.claims-table td { padding:12px 12px; border-bottom:1px solid #F9FAFB; color:#000000; }
+.claims-table tr:hover td { background:#F9FAFB; }
 .claim-id   { font-weight:700; color:#16A34A; }
 
 /* ── Status Tags ── */
@@ -177,13 +217,13 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
 div[data-testid="stTextInput"] label,
 div[data-testid="stTextArea"] label,
 div[data-testid="stSelectbox"] label {
-    color: #14532D !important; font-weight: 700 !important; font-size: 0.95rem !important;
+    color: #000000 !important; font-weight: 700 !important; font-size: 0.95rem !important;
     margin-bottom: 8px !important;
 }
 div[data-testid="stTextInput"] input,
 div[data-testid="stTextArea"] textarea {
     background-color: #FFFFFF !important;
-    color: #1F2937 !important;
+    color: #000000 !important;
     border: 1.5px solid #E5E7EB !important;
     border-radius: 12px !important;
     padding: 12px 18px !important;
@@ -209,7 +249,7 @@ div[data-testid="stTextInput"] input:focus {
 [data-testid="stChatMessage"] p, 
 [data-testid="stChatMessage"] li,
 [data-testid="stChatMessage"] span {
-    color: #1F2937 !important;
+    color: #000000 !important;
     font-size: 1.15rem !important;
     line-height: 1.6 !important;
 }
@@ -413,7 +453,8 @@ def run_pipeline(df, contamination, n_estimators):
         df.loc[(df["Gender"]=="Male")&(df["Primary_Diagnosis"]=="Maternity Care"),"Rule_Fraud"] = 1
 
     fcols = [c for c in [cost_col,"LOS","Cost_to_Package","PreAuth_Delay","Hospital_Avg_Cost","Patient_Claim_Count","Age"] if c and c in df.columns]
-    iso = IsolationForest(contamination=contamination, n_estimators=n_estimators, random_state=42)
+    # 🔥 Use all available cores for isolation forest training
+    iso = IsolationForest(contamination=contamination, n_estimators=n_estimators, random_state=42, n_jobs=-1)
     df["ML_Anomaly"] = iso.fit_predict(df[fcols].fillna(0))
 
     df["Risk_Score"] = (df["Rule_Fraud"]*.5 + (df["ML_Anomaly"]==-1).astype(int)*.4 + (df["Cost_to_Package"]>2).astype(int)*.1).round(2)
@@ -464,7 +505,12 @@ def run_pipeline(df, contamination, n_estimators):
                     f"significantly from peer benchmarks. Possible service bundling, unnecessary procedures, or "
                     f"inflated consumables. Request itemised billing and clinical notes for review.")
 
-    df["AI_Justification"] = df.apply(smart_just, axis=1)
+    # Optimized justification application: Only run on actual fraud cases
+    df["AI_Justification"] = ""
+    fraud_mask = df["Fraud_Flag"] == 1
+    if fraud_mask.any():
+        df.loc[fraud_mask, "AI_Justification"] = df[fraud_mask].apply(smart_just, axis=1)
+    
     return df, cost_col
 
 
@@ -530,27 +576,41 @@ def make_audit_log(fraud_df):
 # ============================================================
 CSV_PATH = "ayushman_claims.csv"
 
-if st.session_state.df is None:
-    # 1️⃣  Try Supabase
-    if _supabase_ready and st.session_state.uid:
+@st.cache_data(ttl=600, show_spinner=False)
+def master_data_loader(uid, contamination, n_estimators, _supabase_ready):
+    """
+    Consolidated, cached data loader to prevent redundant processing.
+    """
+    df_out = None
+    cost_col_out = None
+    
+    # 1. Try Supabase
+    if _supabase_ready and uid:
         try:
-            with st.spinner("☁️ Loading your claims from Supabase..."):
-                cloud_df = sb.fetch_data_from_supabase(user_id=st.session_state.uid) # Filter by user
+            cloud_df = sb.fetch_data_from_supabase(user_id=uid)
             if not cloud_df.empty:
-                st.session_state.df, st.session_state.cost_col = run_pipeline(
-                    cloud_df,
-                    st.session_state.contamination,
-                    st.session_state.n_estimators
-                )
-        except Exception as _sb_err:
-            st.warning(f"⚠️ Supabase load failed: {_sb_err}. Falling back to local CSV.")
+                df_out, cost_col_out = run_pipeline(cloud_df, contamination, n_estimators)
+        except:
+            pass
+            
+    # 2. Try Local CSV fallback
+    if df_out is None and os.path.exists(CSV_PATH):
+        try:
+            raw_df = pd.read_csv(CSV_PATH)
+            df_out, cost_col_out = run_pipeline(raw_df, contamination, n_estimators)
+        except:
+            pass
+            
+    return df_out, cost_col_out
 
-    # 2️⃣  Fall back to local CSV
-    if st.session_state.df is None and os.path.exists(CSV_PATH):
-        st.session_state.df, st.session_state.cost_col = run_pipeline(
-            pd.read_csv(CSV_PATH),
-            st.session_state.contamination,
-            st.session_state.n_estimators
+# ── Auto-trigger load
+if st.session_state.df is None:
+    with st.spinner("🔍 Performing Initial Forensic Audit..."):
+        st.session_state.df, st.session_state.cost_col = master_data_loader(
+            st.session_state.uid, 
+            st.session_state.contamination, 
+            st.session_state.n_estimators,
+            _supabase_ready
         )
 
 
@@ -574,8 +634,13 @@ with st.sidebar:
     st.markdown("<div style='padding:12px 12px 4px;'>", unsafe_allow_html=True)
 
     if st.session_state.user:
-        pages = {"Home": "Home", "Fraud Audit Report": "Report",
-                 "AI Assistant": "Chat", "Account": "Account", "Settings": "Settings"}
+        pages = {
+            "Home": "Home", 
+            "Fraud Audit Report": "Report",
+            "AI Assistant": "Chat", 
+            "Account": "Account", 
+            "Settings": "Settings"
+        }
         for label, key in pages.items():
             is_active = st.session_state.page == key
             btn_style = ("background:#DCFCE7;color:#16A34A;font-weight:700;" if is_active
@@ -1037,7 +1102,10 @@ elif st.session_state.page == "Account":
                         password = st.text_input("Password", type="password")
                         submit = st.form_submit_button("Sign In", use_container_width=True, type="primary")
                         if submit:
-                            if email and password:
+                            # Step 3A: Login Limit (5 per minute)
+                            if not limiter.is_allowed("login", limit=5):
+                                limiter.show_error()
+                            elif email and password:
                                 try:
                                     res = sb.sign_in(email, password)
                                     if res.user:
@@ -1066,7 +1134,10 @@ elif st.session_state.page == "Account":
                         reg_pass = st.text_input("Password", type="password")
                         reg_submit = st.form_submit_button("Create Investigator Account", use_container_width=True, type="primary")
                         if reg_submit:
-                            if reg_email and reg_pass:
+                            # Step 3C: Register Limit (moderate)
+                            if not limiter.is_allowed("register", limit=3):
+                                limiter.show_error()
+                            elif reg_email and reg_pass:
                                 try:
                                     res = sb.sign_up(reg_email, reg_pass)
                                     st.success("Account created! Verify your email and login.")
@@ -1224,6 +1295,8 @@ Detection Parameter Guide
 </div>
 </div>""", unsafe_allow_html=True)
 
+# AI Assistant Section follows
+
 # ── PAGE: AI ASSISTANT (CHAT)
 # ============================================================
 elif st.session_state.page == "Chat":
@@ -1266,6 +1339,11 @@ elif st.session_state.page == "Chat":
     user_input = st.chat_input("Query the forensic database...")
 
     if user_input:
+        # Step 3B: AI Assistant Limit (10 per minute)
+        if not limiter.is_allowed("ai_query", limit=10):
+            limiter.show_error()
+            st.stop()
+
         st.session_state.chat_history.append(("You", user_input))
         
         # Manually render the user message immediately so it's visible while AI thinks
