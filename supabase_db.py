@@ -128,6 +128,10 @@ def sign_out():
     client = init_supabase()
     return client.auth.sign_out()
 
+def send_password_reset_email(email):
+    client = init_supabase()
+    return client.auth.reset_password_for_email(email)
+
 def get_current_user():
     client = init_supabase()
     try:

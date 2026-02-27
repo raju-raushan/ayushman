@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os, time, random
+import os, time, random, base64
 from datetime import datetime, timedelta
 from sklearn.ensemble import IsolationForest
 from dotenv import load_dotenv
@@ -11,13 +11,15 @@ load_dotenv()
 try:
     from openai import OpenAI as _OpenAI
     _openai_available = True
+    _ai_client = _OpenAI(api_key=os.getenv("OPENAI_API_KEY")) if os.getenv("OPENAI_API_KEY") else None
 except ImportError:
     _openai_available = False
+    _ai_client = None
 
 # ============================================================
 #  LOGO / BRANDING
 # ============================================================
-import base64
+@st.cache_data
 def get_base64_img(path):
     if os.path.exists(path):
         with open(path, "rb") as f:
@@ -47,8 +49,11 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
 .stApp { background:#F3F4F6 !important; color:#1F2937 !important; }
 
 /* ── Hide default Streamlit elements ── */
-#MainMenu, footer, header { visibility:hidden; }
+#MainMenu, footer, header { visibility:hidden; height:0; display:none; }
 [data-testid="stSidebarNav"] { display:none; }
+[data-testid="stHeader"] { display:none; }
+[data-testid="stDecoration"] { display:none; }
+.block-container { padding-top: 1.5rem !important; }
 
 /* ── Sidebar ── */
 [data-testid="stSidebar"] {
@@ -100,11 +105,11 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
     display:flex; align-items:center; justify-content:center;
     font-size:1.3rem;
 }
-.kpi-label { font-size:.78rem; font-weight:500; color:#6B7280; margin-bottom:6px; }
-.kpi-value { font-size:1.9rem; font-weight:800; color:#14532D; line-height:1; }
+.kpi-label { font-size:.9rem; font-weight:500; color:#1F2937; margin-bottom:6px; }
+.kpi-value { font-size:2.2rem; font-weight:800; color:#14532D; line-height:1; }
 .kpi-delta-up   { font-size:.75rem; font-weight:700; color:#16A34A; margin-left:6px; }
 .kpi-delta-warn { font-size:.75rem; font-weight:700; color:#DC2626; margin-left:6px; }
-.kpi-sub   { font-size:.73rem; color:#6B7280; margin-top:4px; }
+.kpi-sub   { font-size:.73rem; color:#1F2937; margin-top:4px; }
 
 /* ── Section card ── */
 .section-card {
@@ -116,7 +121,7 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
     margin-bottom:18px;
 }
 .section-title {
-    font-size:1rem; font-weight:700; color:#14532D;
+    font-size:1.2rem; font-weight:700; color:#14532D;
     display:flex; align-items:center; gap:8px;
     margin-bottom:16px;
 }
@@ -137,13 +142,24 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
     margin-top:2px;
 }
 .timeline-title { font-size:.88rem; font-weight:700; color:#14532D; }
-.timeline-time  { font-size:.72rem; font-weight:600; color:#6B7280; margin-left:8px; }
+.timeline-time  { font-size:.72rem; font-weight:600; color:#1F2937; margin-left:8px; }
 .timeline-desc  { font-size:.8rem; color:#4B5563; margin-top:3px; line-height:1.5; }
+
+/* ── Feature Cards ── */
+.feat-card {
+    background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 24px;
+    padding: 28px; box-shadow: 0 4px 24px rgba(0,0,0,0.02);
+    margin-bottom: 24px; transition: all 0.3s ease;
+}
+.feat-card:hover { transform: translateY(-5px); }
+.feat-icon { font-size: 2rem; margin-bottom: 12px; color: #16A34A; }
+.feat-title { font-size: 1.25rem; font-weight: 800; color: #14532D; margin-bottom: 8px; }
+.feat-desc { font-size: 1.1rem; color: #1F2937; line-height: 1.6; }
 
 /* ── Flagged claims table ── */
 .claims-table { width:100%; border-collapse:collapse; font-size:.83rem; }
 .claims-table th {
-    color:#6B7280; font-weight:700; font-size:.7rem;
+    color:#1F2937; font-weight:700; font-size:.7rem;
     text-transform:uppercase; letter-spacing:.6px;
     padding:8px 12px; border-bottom:2px solid #DCFCE7;
     text-align:left;
@@ -151,116 +167,167 @@ html, body, [class*="css"] { font-family:'Inter',sans-serif !important; }
 .claims-table td { padding:12px 12px; border-bottom:1px solid #F9FAFB; }
 .claims-table tr:hover td { background:#F0FDF4; }
 .claim-id   { font-weight:700; color:#16A34A; }
-.score-bar-wrap { display:flex; align-items:center; gap:8px; }
-.score-bar  { height:6px; border-radius:3px; }
-.score-text { font-weight:700; font-size:.8rem; }
 
-/* ── Status tags ── */
+/* ── Status Tags ── */
 .tag-high   { background:#FEE2E2; color:#DC2626; border:1px solid #FECACA; border-radius:20px; padding:3px 10px; font-size:.7rem; font-weight:700; }
 .tag-inv    { background:#FEF3C7; color:#D97706; border:1px solid #FDE68A; border-radius:20px; padding:3px 10px; font-size:.7rem; font-weight:700; }
 .tag-safe   { background:#DCFCE7; color:#16A34A; border:1px solid #BBF7D0; border-radius:20px; padding:3px 10px; font-size:.7rem; font-weight:700; }
 
-/* ── Floating chatbot ── */
-.chatbot-btn {
-    position:fixed; bottom:28px; right:28px; z-index:9999;
-    width:56px; height:56px; border-radius:50%;
-    background:linear-gradient(135deg,#16A34A,#22C55E);
-    box-shadow:0 6px 24px rgba(22,163,74,.45);
-    display:flex; align-items:center; justify-content:center;
-    cursor:pointer; font-size:1.5rem;
-    transition:transform .2s;
+/* ── Input Fields & Labels ── */
+div[data-testid="stTextInput"] label,
+div[data-testid="stTextArea"] label,
+div[data-testid="stSelectbox"] label {
+    color: #14532D !important; font-weight: 700 !important; font-size: 0.95rem !important;
+    margin-bottom: 8px !important;
 }
-.chatbot-btn:hover { transform:scale(1.08); }
-
-/* ── Chat panel ── */
-.chat-panel {
-    position:fixed; bottom:96px; right:28px; z-index:9998;
-    width:320px; background:#fff;
-    border:1px solid #E5E7EB; border-radius:16px;
-    box-shadow:0 8px 32px rgba(22,163,74,.15);
-    overflow:hidden;
+div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea {
+    background-color: #FFFFFF !important;
+    color: #1F2937 !important;
+    border: 1.5px solid #E5E7EB !important;
+    border-radius: 12px !important;
+    padding: 12px 18px !important;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.02) !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
-.chat-header {
-    background:linear-gradient(135deg,#16A34A,#22C55E);
-    color:#fff; padding:14px 18px;
-    font-weight:700; font-size:.9rem;
-    display:flex; align-items:center; gap:10px;
-}
-.chat-body { padding:14px 16px; min-height:120px; }
-.chat-msg-bot {
-    background:#DCFCE7; color:#14532D; border-radius:12px 12px 12px 2px;
-    padding:10px 14px; font-size:.82rem; margin-bottom:10px; max-width:85%;
-}
-.chat-input {
-    border-top:1px solid #E2ECF8; padding:10px 14px;
-    display:flex; gap:8px;
+div[data-testid="stTextInput"] input:focus {
+    border-color: #16A34A !important;
+    box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.1) !important;
+    background-color: #FAFAFA !important;
 }
 
-/* ── Upload zone ── */
+/* ── Floating Chatbot ── */
+/* ── Chat Visibility & Clean UI ── */
+[data-testid="stChatMessage"] {
+    background-color: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 16px !important;
+    padding: 18px !important;
+    margin-bottom: 12px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+}
+[data-testid="stChatMessage"] p, 
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] span {
+    color: #1F2937 !important;
+    font-size: 1.15rem !important;
+    line-height: 1.6 !important;
+}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p {
+    color: #111827 !important;
+    font-weight: 500 !important;
+}
+/* Force white text for user inputs in chat because of dark background */
+[data-testid="stChatInput"] textarea {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}
+
+/* ── Upload Zone ── */
 [data-testid="stFileUploaderDropzone"] {
-    background:#DCFCE7 !important;
-    border:2px dashed #16A34A !important;
-    border-radius:20px !important;
-    min-height: 400px !important;
-    padding: 40px !important;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    background: #FFFFFF !important;
+    border: 2px dashed #D1D5DB !important;
+    border-radius: 24px !important;
+    transition: all 0.3s ease !important;
+    padding: 60px !important;
+}
+[data-testid="stFileUploaderDropzone"]:hover {
+    border-color: #16A34A !important;
+    background: #F0FDF4 !important;
+}
+/* Force absolute black for all upload section text (instructions & sub-text) */
+[data-testid="stFileUploaderDropzone"] *:not(button):not(button *) {
+    color: #000000 !important;
+    opacity: 1 !important;
 }
 
-/* ── Metrics override ── */
-[data-testid="metric-container"] {
-    background:#fff !important;
-    border:1px solid #E5E7EB !important;
-    border-radius:14px !important;
-    padding:16px !important;
-    box-shadow:0 2px 8px rgba(22,163,74,.06) !important;
+/* Browse Files Button Fix - Keep text white */
+[data-testid="stFileUploaderDropzone"] button,
+[data-testid="stFileUploaderDropzone"] button span,
+[data-testid="stFileUploaderDropzone"] button div {
+    color: white !important;
 }
-[data-testid="stMetricLabel"] * {
-    color: #6B7280 !important;
+[data-testid="stFileUploaderDropzone"] button {
+    background-color: #16A34A !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 8px 20px !important;
     font-weight: 600 !important;
-}
-[data-testid="stMetricValue"] * {
-    color: #14532D !important;
-}
-[data-testid="stMetricDelta"] * {
-    font-weight: 700 !important;
+    box-shadow: 0 4px 12px rgba(22, 163, 74, 0.2) !important;
 }
 
-/* ── Streamlit select/slider ── */
-[data-baseweb="select"] > div { background:#fff !important; border-color:#D1D5DB !important; border-radius:8px !important; }
-.stSlider [data-baseweb="slider"] { color:#16A34A !important; }
+/* ── Metrics & Cards ── */
+[data-testid="metric-container"] {
+    background: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 20px !important;
+    padding: 24px !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.03) !important;
+    transition: transform 0.3s ease !important;
+}
+[data-testid="metric-container"]:hover { transform: translateY(-4px); }
+
+.section-card {
+    background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 24px;
+    padding: 28px; box-shadow: 0 4px 24px rgba(0,0,0,0.02);
+    margin-bottom: 24px; transition: all 0.3s ease;
+}
+.section-card:hover { box-shadow: 0 12px 40px rgba(22,163,74,0.08); transform: translateY(-2px); }
 
 /* ── Premium Landing ── */
 .hero-section {
     background: linear-gradient(135deg, #14532D 0%, #16A34A 100%);
-    color: white; padding: 50px 40px; border-radius: 20px;
-    margin-bottom: 30px; position: relative; overflow: hidden;
+    color: white; padding: 60px 50px; border-radius: 32px;
+    margin-bottom: 40px; position: relative; overflow: hidden;
+    box-shadow: 0 20px 40px rgba(20, 83, 45, 0.2);
 }
 .hero-section::after {
-    content: ''; position: absolute; right: -20px; bottom: -20px;
-    width: 250px; height: 250px; background: url('""" + LOGO_B64 + """') no-repeat center center;
-    background-size: contain; opacity: 0.1; transform: rotate(-15deg);
+    content: ''; position: absolute; right: -40px; bottom: -40px;
+    width: 300px; height: 300px; background: url('""" + LOGO_B64 + """') no-repeat center center;
+    background-size: contain; opacity: 0.07; transform: rotate(-20deg);
 }
-.feat-card {
-    background: #fff; padding: 24px; border-radius: 16px;
-    border: 1px solid #E5E7EB; box-shadow: 0 4px 15px rgba(22,163,74,.05);
-    height: 100%; transition: transform 0.2s;
+
+/* ── Auth Container ── */
+.auth-container {
+    max-width: 480px; margin: 0 auto;
 }
-.feat-card:hover { transform: translateY(-5px); }
-.feat-icon { font-size: 2rem; margin-bottom: 12px; color: #16A34A; }
-.feat-title { font-weight: 800; color: #14532D; margin-bottom: 8px; }
-.feat-desc { font-size: 0.85rem; color: #4B5563; line-height: 1.5; }
+
+/* ── Primary Button Overhaul ── */
+.stButton button[kind="primary"],
+div[data-testid="stBaseButton-primary"] button {
+    background-color: #16A34A !important;
+    background: #16A34A !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 12px !important;
+    height: 48px !important;
+    width: 100% !important;
+    font-weight: 700 !important;
+    margin-top: 10px !important;
+}
+.stButton button[kind="primary"]:hover {
+    background-color: #14532D !important;
+    box-shadow: 0 4px 12px rgba(22, 163, 74, 0.2) !important;
+}
+
+/* ── Secondary Button (Forgot Password) ── */
+.stButton button[kind="secondary"] {
+    color: white !important;
+    background: #1F2937 !important;
+    border-radius: 10px !important;
+    border: none !important;
+}
+
+/* ── Tabs Underline ── */
+button[data-baseweb="tab"] { color: #1F2937 !important; }
+button[data-baseweb="tab"][aria-selected="true"] {
+    color: #16A34A !important; border-bottom-color: #16A34A !important;
+}
+div[data-baseweb="tab-highlight"] {
+    background-color: #16A34A !important;
+}
 </style>
 """, unsafe_allow_html=True)
-
-# ── Firebase (graceful if not configured yet) ────────────────
-try:
-    import firebase_auth as fb_auth
-    import firebase_db   as fb_db
-    _firebase_ready = bool(os.getenv("FIREBASE_API_KEY","") not in ("","your_firebase_api_key"))
-except Exception:
-    _firebase_ready = False
 
 # ── Supabase (graceful if not configured yet) ───────────────
 try:
@@ -270,7 +337,7 @@ except Exception:
     _supabase_ready = False
     sb = None
 
-# ── Global Session Cache (Persists across refreshes) ──────────
+# ── Global Session Cache ─────────────────────────────────────
 @st.cache_resource
 def get_session_cache():
     return {}
@@ -309,16 +376,15 @@ if st.session_state.user is None:
             pass
 
 # --- VALIDATE PAGE ---
-valid_pages = ["Home", "Report", "Account", "Settings"]
-if st.session_state.user and st.session_state.page not in valid_pages:
-    st.session_state.page = "Home"
-elif st.session_state.user is None:
+if st.session_state.user is None:
     st.session_state.page = "Account"
-
+elif st.session_state.page not in ["Home", "Report", "Account", "Settings", "Chat"]:
+    st.session_state.page = "Home"
 
 # ============================================================
-#  PIPELINE
+#  PIPELINE (CACHED FOR SPEED)
 # ============================================================
+@st.cache_data(show_spinner=False)
 def run_pipeline(df, contamination, n_estimators):
     cost_col = ("Final_Billed_Amount" if "Final_Billed_Amount" in df.columns else
                 "TreatmentCost"       if "TreatmentCost"       in df.columns else None)
@@ -508,8 +574,8 @@ with st.sidebar:
     st.markdown("<div style='padding:12px 12px 4px;'>", unsafe_allow_html=True)
 
     if st.session_state.user:
-        pages = {"Home":"Home","Fraud Audit Report":"Report",
-                 "Account":"Account","Settings":"Settings"}
+        pages = {"Home": "Home", "Fraud Audit Report": "Report",
+                 "AI Assistant": "Chat", "Account": "Account", "Settings": "Settings"}
         for label, key in pages.items():
             is_active = st.session_state.page == key
             btn_style = ("background:#DCFCE7;color:#16A34A;font-weight:700;" if is_active
@@ -532,7 +598,7 @@ with st.sidebar:
     <div style='margin:8px 12px;padding:10px 14px;background:#F9FAFB;
                 border:1px solid #E5E7EB;border-radius:10px;'>
         <div style='display:flex;justify-content:space-between;margin-bottom:6px;'>
-            <span style='font-size:.68rem;color:#6B7280;font-weight:600;'>DATA SOURCE</span>
+            <span style='font-size:.68rem;color:#1F2937;font-weight:600;'>DATA SOURCE</span>
             <span style='font-size:.68rem;font-weight:700;color:{sb_color};'>{sb_status}</span>
         </div>
         <div style='font-size:.72rem;color:#4B5563;'>{'<b>'+str(n_rows)+"</b> claims &nbsp;|&nbsp; <b style='color:#DC2626;'>"+str(n_fraud)+"</b> flagged" if df_loaded else 'No data loaded'}</div>
@@ -553,73 +619,18 @@ with st.sidebar:
                     display:flex;align-items:center;justify-content:center;color:#fff;font-size:.9rem;font-weight:800;'>{user_initial}</div>
         <div>
             <div style='font-size:.85rem;font-weight:700;color:#14532D;'>{user_display}</div>
-            <div style='font-size:.7rem;color:#6B7280;'>{user_role}</div>
+            <div style='font-size:.7rem;color:#1F2937;'>{user_role}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
 
-# ============================================================
-#  FLOATING CHATBOT
-# ============================================================
-chat_open = st.session_state.chat_open
+# ── Navigation & Routing Logic Updated ──
 
-# Toggle button (always visible)
-st.markdown(f"""
-<div class='chatbot-btn' onclick="window.parent.document.querySelector('[data-testid=stApp]').dispatchEvent(new CustomEvent('chatToggle'))"
-     title='AI Assistant' id='chatbot-fab'>💬</div>
-""", unsafe_allow_html=True)
-
-# Sidebar chatbot toggle (actual Streamlit interaction)
-with st.sidebar:
-    st.markdown("<div style='padding:0 12px 80px;margin-top:8px;'>", unsafe_allow_html=True)
-    if st.button("AI Assistant", key="chat_toggle", use_container_width=True):
-        st.session_state.chat_open = not st.session_state.chat_open
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-if st.session_state.chat_open:
-    st.markdown(f"""
-    <div class='chat-panel'>
-        <div class='chat-header'><img src='{LOGO_B64}' style='width:20px;height:20px;border-radius:4px;'>&nbsp;MedShield AI Assistant <span style='margin-left:auto;font-size:.8rem;opacity:.8;'>● Online</span></div>
-        <div class='chat-body'>
-            <div class='chat-msg-bot'>Hello! I'm your fraud analysis assistant.<br>Ask me about any flagged claim, fraud type, or investigation steps.</div>
-            <div class='chat-msg-bot' style='background:#FEF3C7;color:#D97706;'>💡 Try: <em>"Explain Ghost Billing"</em> or <em>"What is Up-coding?"</em></div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    with st.form("chat_form", clear_on_submit=True):
-        chat_cols = st.columns([5,1])
-        user_msg = chat_cols[0].text_input("", placeholder="Ask about a claim or fraud type...", label_visibility="collapsed")
-        submitted = chat_cols[1].form_submit_button("Send")
-
-    if submitted and user_msg:
-        responses = {
-            "ghost": "Ghost Billing is when a hospital submits a claim for a patient who was never actually treated or admitted. The base package rate is ₹0 but a large amount is billed.",
-            "upcode": "Up-coding is when hospitals bill for a more expensive procedure than what was actually performed, inflating the reimbursement beyond the approved Ayushman Bharat package rate.",
-            "fake":   "Fake Admission involves creating hospital admission records for patients who were never hospitalised, to fraudulently claim inpatient reimbursements.",
-            "identity":"Identity Misuse occurs when a beneficiary's Aadhaar/AB card is used by multiple people or across many claims, often in collusion with the hospital.",
-            "isolat": "Isolation Forest is an ML algorithm that isolates anomalies by randomly splitting data. Points that are easy to isolate (few splits needed) are flagged as outliers.",
-        }
-        msg_lower = user_msg.lower()
-        reply = next((v for k,v in responses.items() if k in msg_lower),
-                     f"🤔 I can help with fraud types, investigation steps, or claim analysis. Could you be more specific about '{user_msg}'?")
-        st.session_state.chat_history.append(("You", user_msg))
-        st.session_state.chat_history.append(("Bot", reply))
-
-    for role, msg in st.session_state.chat_history[-6:]:
-        if role=="You":
-            st.markdown(f"<div style='text-align:right;margin-bottom:6px;'><span style='background:#16A34A;color:#fff;border-radius:12px 12px 2px 12px;padding:8px 12px;font-size:.82rem;'>{msg}</span></div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div style='margin-bottom:8px;'><span style='background:#DCFCE7;color:#14532D;border-radius:12px 12px 12px 2px;padding:8px 12px;font-size:.82rem;display:inline-block;max-width:85%;'>{msg}</span></div>", unsafe_allow_html=True)
+# ── Legacy Floating Logic Removed ──
 
 
-# ── Page Routing Logic ──────────────────────────────────────
-if st.session_state.user is None:
-    st.session_state.page = "Account"
-elif st.session_state.page not in ["Home", "Report", "Account", "Settings"]:
-    st.session_state.page = "Home"
+# ── Navigation & Routing Logic Updated ──
 
 # ============================================================
 #  PAGE: FRAUD AUDIT REPORT
@@ -627,8 +638,8 @@ elif st.session_state.page not in ["Home", "Report", "Account", "Settings"]:
 if st.session_state.page == "Report":
     st.markdown("""
     <div style='padding:6px 0 18px;'>
-      <span style='font-size:1.2rem;font-weight:800;color:#14532D;'>Fraud Audit Report</span>
-      <span style='color:#DC2626;font-size:1.2rem;'> — Critical Investigation Queue</span>
+      <span style='font-size:1.8rem;font-weight:800;color:#14532D;'>Fraud Audit Report</span>
+      <span style='color:#DC2626;font-size:1.8rem;'> — Critical Investigation Queue</span>
     </div>""", unsafe_allow_html=True)
 
     if not _supabase_ready:
@@ -641,7 +652,60 @@ if st.session_state.page == "Report":
     if frauds_df.empty:
         st.info("✅ No critical frauds pending review in the cloud database.")
     else:
-        st.markdown(f"**Found {len(frauds_df)} critical cases requiring immediate audit.**")
+        # ── Premium Forensic Summary ──
+        total_amt = frauds_df.get("Final_Billed_Amount", pd.Series([0])).sum()
+        avg_risk = frauds_df.get("Risk_Score", pd.Series([0])).mean() * 100
+        
+        summary_html = f"""
+        <div style='background: white; border: 1px solid #E5E7EB; border-radius: 20px; padding: 25px; margin-bottom: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.02);'>
+            <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;'>
+                <div style='font-size: 1.4rem; font-weight: 800; color: #14532D;'>Forensic Audit Summary</div>
+                <div style='background: #DCFCE7; color: #16A34A; padding: 5px 15px; border-radius: 20px; font-size: 0.85rem; font-weight: 800;'>SECURE CLOUD DATA</div>
+            </div>
+            <div style='display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;'>
+                <div style='background: #F9FAFB; padding: 15px; border-radius: 12px; border: 1px solid #F3F4F6;'>
+                    <div style='font-size: 0.85rem; color: #6B7280; font-weight: 700; text-transform: uppercase;'>Investigation Queue</div>
+                    <div style='font-size: 2.2rem; font-weight: 800; color: #111827;'>{len(frauds_df)} <span style='font-size: 1rem; color: #6B7280;'>Cases</span></div>
+                </div>
+                <div style='background: #FFF7ED; padding: 15px; border-radius: 12px; border: 1px solid #FFEDD5;'>
+                    <div style='font-size: 0.85rem; color: #9A3412; font-weight: 700; text-transform: uppercase;'>Pipeline Value</div>
+                    <div style='font-size: 2.2rem; font-weight: 800; color: #9A3412;'>{fmt_crore(total_amt)}</div>
+                </div>
+                <div style='background: #FEF2F2; padding: 15px; border-radius: 12px; border: 1px solid #FEE2E2;'>
+                    <div style='font-size: 0.85rem; color: #991B1B; font-weight: 700; text-transform: uppercase;'>Avg Risk Level</div>
+                    <div style='font-size: 2.2rem; font-weight: 800; color: #991B1B;'>{int(avg_risk)}%</div>
+                </div>
+            </div>
+        </div>
+        """
+        st.markdown(summary_html, unsafe_allow_html=True)
+        
+        # ── Category Distribution (Split View) ──
+        c1, c2 = st.columns([1.5, 1])
+        with c1:
+            if "Fraud_Type" in frauds_df.columns:
+                chart_data = frauds_df["Fraud_Type"].value_counts().reset_index()
+                chart_data.columns = ["Category", "Counts"]
+                st.markdown("<div style='font-size:0.95rem; font-weight:700; color:#4B5563; margin-bottom:12px; letter-spacing:0.5px;'>CATEGORY DISTRIBUTION</div>", unsafe_allow_html=True)
+                st.bar_chart(chart_data.set_index("Category"), color="#16A34A", use_container_width=True)
+        
+        with c2:
+            st.markdown("<div style='font-size:0.95rem; font-weight:700; color:#4B5563; margin-bottom:12px; letter-spacing:0.5px;'>RECENT ALERTS</div>", unsafe_allow_html=True)
+            for _, row in frauds_df.head(3).iterrows():
+                pid = row.get("PatientID", "—")
+                ft = row.get("Fraud_Type", "—")
+                st.markdown(f"""
+                <div style='background:white; border:1px solid #F3F4F6; padding:12px 18px; border-radius:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;'>
+                    <div>
+                        <div style='font-size:1.1rem; font-weight:700; color:#111827;'>{pid}</div>
+                        <div style='font-size:0.85rem; color:#6B7280;'>{ft}</div>
+                    </div>
+                    <div style='width:8px; height:8px; border-radius:50%; background:#DC2626;'></div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown(f"<p style='color:#14532D; font-weight:700; font-size:1.25rem;'>Listing {len(frauds_df)} priority investigations:</p>", unsafe_allow_html=True)
         
         # Display Cards
         for i, (_, row) in enumerate(frauds_df.iterrows()):
@@ -659,21 +723,21 @@ if st.session_state.page == "Report":
             s_ai   = str(ai).strip().replace("\n", " ")
 
             card_html = (
-                f"<div style=\"font-family:sans-serif; background:#fff; border:2px solid #DCFCE7; border-left:6px solid #DC2626; border-radius:12px; padding:20px; box-shadow: 0 4px 12px rgba(22,163,74, 0.08);\">"
+                f"<div style=\"font-family:sans-serif; background:#fff; border:2px solid #DCFCE7; border-left:6px solid #DC2626; border-radius:12px; padding:25px; box-shadow: 0 4px 12px rgba(22,163,74, 0.08);\">"
                 f"<div style=\"display:flex; justify-content:space-between; align-items:flex-start;\">"
-                f"<div><div style=\"font-size:.7rem; color:#DC2626; font-weight:700; text-transform:uppercase;\">Patient ID</div>"
-                f"<div style=\"font-size:1.1rem; font-weight:800; color:#14532D;\">{s_pid}</div></div>"
-                f"<div style=\"text-align:right;\"><div style=\"font-size:.7rem; color:#6B7280; font-weight:700; text-transform:uppercase;\">Risk Level</div>"
-                f"<div style=\"background:#DC2626; color:#fff; font-size:.8rem; font-weight:800; padding:4px 12px; border-radius:20px; margin-top:4px;\">{int(risk*100)}% CRITICAL</div></div></div>"
-                f"<div style=\"display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px; margin-top:18px; padding:12px 16px; background:#FDFDFD; border-radius:10px; border:1px solid #E5E7EB;\">"
-                f"<div><div style=\"font-size:.65rem; color:#6B7280; font-weight:700;\">AGE</div><div style=\"font-size:.9rem; font-weight:700; color:#14532D;\">{age} yrs</div></div>"
-                f"<div><div style=\"font-size:.65rem; color:#6B7280; font-weight:700;\">DISEASE / DIAGNOSIS</div><div style=\"font-size:.9rem; font-weight:700; color:#14532D;\">{s_diag}</div></div>"
-                f"<div><div style=\"font-size:.65rem; color:#6B7280; font-weight:700;\">SUSPICIOUS AMOUNT</div><div style=\"font-size:.9rem; font-weight:700; color:#DC2626;\">&#8377;{amt:,.2f}</div></div></div>"
-                f"<div style=\"margin-top:20px;\"><div style=\"font-size:.7rem; color:#16A34A; font-weight:800; text-transform:uppercase; margin-bottom:6px;\">&#129302; AI Risk Justification</div>"
-                f"<div style=\"font-size:.85rem; color:#1F2937; line-height:1.6; background:#DCFCE7; padding:12px 16px; border-radius:8px; border-left:4px solid #16A34A;\">{s_ai}</div></div>"
+                f"<div><div style=\"font-size:.85rem; color:#DC2626; font-weight:700; text-transform:uppercase;\">Patient ID</div>"
+                f"<div style=\"font-size:1.3rem; font-weight:800; color:#14532D;\">{s_pid}</div></div>"
+                f"<div style=\"text-align:right;\"><div style=\"font-size:.85rem; color:#1F2937; font-weight:700; text-transform:uppercase;\">Risk Level</div>"
+                f"<div style=\"background:#DC2626; color:#fff; font-size:1rem; font-weight:800; padding:4px 15px; border-radius:20px; margin-top:4px;\">{int(risk*100)}% CRITICAL</div></div></div>"
+                f"<div style=\"display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px; margin-top:18px; padding:15px 20px; background:#FDFDFD; border-radius:10px; border:1px solid #E5E7EB;\">"
+                f"<div><div style=\"font-size:.8rem; color:#1F2937; font-weight:700;\">AGE</div><div style=\"font-size:1.1rem; font-weight:700; color:#14532D;\">{age} yrs</div></div>"
+                f"<div><div style=\"font-size:.8rem; color:#1F2937; font-weight:700;\">DISEASE / DIAGNOSIS</div><div style=\"font-size:1.1rem; font-weight:700; color:#14532D;\">{s_diag}</div></div>"
+                f"<div><div style=\"font-size:.8rem; color:#1F2937; font-weight:700;\">SUSPICIOUS AMOUNT</div><div style=\"font-size:1.1rem; font-weight:700; color:#DC2626;\">&#8377;{amt:,.2f}</div></div></div>"
+                f"<div style=\"margin-top:20px;\"><div style=\"font-size:.85rem; color:#16A34A; font-weight:800; text-transform:uppercase; margin-bottom:6px;\">&#129302; AI Risk Justification</div>"
+                f"<div style=\"font-size:1.05rem; color:#1F2937; line-height:1.6; background:#DCFCE7; padding:15px 20px; border-radius:8px; border-left:4px solid #16A34A;\">{s_ai}</div></div>"
                 f"</div>"
             )
-            st.components.v1.html(card_html, height=280)
+            st.components.v1.html(card_html, height=310)
             st.markdown("<div style='margin-bottom:20px;'></div>", unsafe_allow_html=True)
         
         # --- Single Master Download Button at the Bottom ---
@@ -710,7 +774,7 @@ elif st.session_state.page == "Home":
     st.markdown("""
     <div class='hero-section'>
         <div style='font-size:2.6rem; font-weight:800; margin-bottom:12px; letter-spacing:-1px;'>Ayushman Bharat Fraud Intelligence</div>
-        <div style='font-size:1.15rem; opacity:0.95; max-width:800px; line-height:1.7; font-weight:400;'>
+        <div style='font-size:1.35rem; opacity:1.0; max-width:850px; line-height:1.7; font-weight:400;'>
             Deploying state-of-the-art <b>Deep Intelligence</b> to safeguard India's healthcare future. 
             Our platform serves as a "Digital Auditor," monitoring clinical claims across the 
             PM-JAY network to eliminate leakage, prevent procedure up-coding, and protect 
@@ -748,23 +812,20 @@ elif st.session_state.page == "Home":
 
     # ── 3. ANALYZE NOW ─────────────────────────────────────
     st.markdown("""
-    <div id='analyze-now' style='padding:6px 0 18px;'>
-      <span style='font-size:1.4rem; font-weight:800; color:#16A34A;'>🚀 Analyze Now</span>
-      <span style='color:#6B7280; font-size:1.1rem;'> — Secure Claim Forensic Analysis</span>
+    <div style='margin-bottom:25px; margin-top:10px;'>
+      <span style='font-size:1.4rem; font-weight:800; color:#000000;'>🚀 Analyze Now</span>
+      <span style='color:#000000; font-size:1.25rem; font-weight:500;'> — Secure Claim Forensic Analysis</span>
     </div>""", unsafe_allow_html=True)
 
     uploaded = st.file_uploader("Drop CSV here", type=["csv"], label_visibility="collapsed")
 
     if uploaded:
         raw = pd.read_csv(uploaded)
-        pb  = st.progress(0, text="Loading file...")
-        time.sleep(.2); pb.progress(25, "Running hard rules...")
-        time.sleep(.3); pb.progress(55, "Training Isolation Forest...")
+        pb  = st.progress(0, text="Auditing Data...")
+        # Removed artificial delays for instant forensic analysis
         result_df, cc = run_pipeline(raw.copy(), st.session_state.contamination, st.session_state.n_estimators)
         fraud_up = result_df[result_df["Fraud_Flag"]==1]
         susp_up  = fraud_up[cc].sum() if cc else 0
-        
-        time.sleep(.3); pb.progress(85, "Generating AI justifications...")
 
         if _supabase_ready:
             uid = st.session_state.user.id if st.session_state.user else None
@@ -864,7 +925,7 @@ elif st.session_state.page == "Home":
                     <div><span style='font-weight:700;color:#16A34A;font-size:.95rem;'>{pid2}</span>
                       &nbsp;<span style='background:{cl2}18;color:{cl2};border:1px solid {cl2};border-radius:20px;padding:2px 8px;font-size:.7rem;font-weight:700;'>{ft2}</span>
                     </div>
-                    <div style='font-size:.75rem;color:#6B7280;'>Age:{age2} | ₹{cv2:,.0f} | Risk:{fr.get("Risk score per claim",0.0):.2f}</div>
+                    <div style='font-size:.75rem;color:#1F2937;'>Age:{age2} | ₹{cv2:,.0f} | Risk:{fr.get("Risk score per claim",0.0):.2f}</div>
                   </div>
                   <div style='background:#DCFCE7;border-left:3px solid #16A34A;border-radius:8px;padding:12px 14px;'>
                     <div style='font-size:.68rem;font-weight:700;color:#14532D;text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px;'>Forensic AI Analysis</div>
@@ -883,8 +944,8 @@ elif st.session_state.page == "Home":
         st.markdown("""
         <div class='section-card' style='text-align:center;padding:40px;'>
           <div style='font-size:3rem;'>☁️</div>
-          <div style='font-weight:700;color:#4B5563;font-size:1rem;margin:10px 0 6px;'>Drag &amp; Drop a Claims CSV</div>
-          <div style='font-size:.82rem;color:#6B7280;'>Required columns: <code>PatientID</code>, <code>Final_Billed_Amount</code>, <code>Age</code></div>
+          <div style='font-weight:700;color:#000000;font-size:1rem;margin:10px 0 6px;'>Drag &amp; Drop a Claims CSV</div>
+          <div style='font-size:.82rem;color:#000000;'>Required columns: <code>PatientID</code>, <code>Final_Billed_Amount</code>, <code>Age</code></div>
         </div>""", unsafe_allow_html=True)
 
         # ── Supabase quick actions ───────────────────────────
@@ -929,55 +990,89 @@ elif st.session_state.page == "Home":
 #  PAGE: ACCOUNT
 # ============================================================
 elif st.session_state.page == "Account":
-    st.markdown("<div style='padding:6px 0 18px;'><span style='font-size:1.2rem;font-weight:800;color:#14532D;'>Account</span><span style='color:#6B7280;font-size:1.2rem;'> — Authentication & Activity</span></div>", unsafe_allow_html=True)
     
     if st.session_state.user is None:
-        # ── LOGIN / REGISTER FORM ──────────────────────────
+        # ── LOGIN / REGISTER / FORGOT PASSWORD FLOW ─────────
         col1, col2, col3 = st.columns([1,2,1])
         with col2:
-            st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-            mode = st.radio("Choose Action", ["Login", "Register"], horizontal=True, label_visibility="collapsed")
+            st.markdown(f"""
+                <div style='text-align:center; margin-bottom:20px; padding: 24px; background: white; border-radius: 28px; border: 1px solid #E5E7EB; box-shadow: 0 8px 24px rgba(0,0,0,0.04);'>
+                    <img src='{LOGO_B64}' style='width:56px; height:56px; border-radius:12px; margin-bottom:12px;'>
+                    <div style='font-size:1.6rem; font-weight:800; color:#14532D;'>Welcome Back</div>
+                    <div style='font-size:0.88rem; color:#1F2937; margin-top:2px;'>Access your forensic audit dashboard</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            mode = st.session_state.get("auth_mode", "login")
+
+            if mode == "reset":
+                st.markdown("### Reset Password")
+                st.info("Enter your email address and we'll send you a recovery link.")
+                with st.form("reset_form"):
+                    reset_email = st.text_input("Email Address")
+                    reset_submit = st.form_submit_button("Send Recovery Link", use_container_width=True, type="primary")
+                    if reset_submit:
+                        if reset_email:
+                            try:
+                                sb.send_password_reset_email(reset_email)
+                                st.success("Recovery link sent! Check your inbox.")
+                            except Exception as e:
+                                st.error(f"Failed: {e}")
+                        else:
+                            st.error("Please enter email.")
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("← Back to Login", use_container_width=True):
+                    st.session_state.auth_mode = "login"; st.rerun()
             
-            with st.form("auth_form"):
-                st.markdown(f"### {mode}")
-                email = st.text_input("Email Address")
-                password = st.text_input("Password", type="password")
-                submit = st.form_submit_button(mode, use_container_width=True)
+            else:
+                tabs = st.tabs(["Login", "Register"])
                 
-                if submit:
-                    if not email or not password:
-                        st.error("Please fill both fields.")
-                    elif mode == "Register":
-                        try:
-                            res = sb.sign_up(email, password)
-                            st.success("Registration successful! You can now log in.")
-                            new_uid = res.user.id if res and res.user else "system"
-                            sb.upsert_audit_log(new_uid, "Registration", f"New investigator account created: {email}")
-                        except Exception as e:
-                            st.error(f"Registration failed: {e}")
-                    else:
-                        try:
-                            res = sb.sign_in(email, password)
-                            if res.user:
-                                st.session_state.user = res.user
-                                st.session_state.uid = res.user.id
-                                
+                with tabs[0]:
+                    with st.form("login_form"):
+                        email = st.text_input("Email Address")
+                        password = st.text_input("Password", type="password")
+                        submit = st.form_submit_button("Sign In", use_container_width=True, type="primary")
+                        if submit:
+                            if email and password:
+                                try:
+                                    res = sb.sign_in(email, password)
+                                    if res.user:
+                                        st.session_state.user = res.user
+                                        st.session_state.uid = res.user.id
+                                        import uuid
+                                        sid = str(uuid.uuid4())[:8]
+                                        st.query_params["s"] = sid
+                                        get_session_cache()[sid] = {"user": res.user, "uid": res.user.id}
+                                        st.session_state.page = "Home"
+                                        sb.upsert_audit_log(res.user.id, "Login", f"User {email} logged in.")
+                                        st.rerun()
+                                except Exception as e:
+                                    st.error(f"Login failed: {e}")
+                            else:
+                                st.error("Fields required.")
+                    
+                    st.markdown("<div style='text-align:center; padding-top:12px;'>", unsafe_allow_html=True)
+                    if st.button("Forgot Password?", key="forgot_link", help="Click to reset your password"):
+                        st.session_state.auth_mode = "reset"; st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
 
-                                # Generate and save session ID to URL for persistence across refresh
-                                import uuid
-                                sid = str(uuid.uuid4())[:8]
-                                st.query_params["s"] = sid
-                                _global_sessions[sid] = {"user": res.user, "uid": res.user.id}
-
-                                st.session_state.df = None # Refresh data for this user
-                                st.session_state.page = "Home"
-                                sb.upsert_audit_log(res.user.id, "Login", f"User {email} logged in.")
-                                st.success("Logged in successfully! Redirecting...")
-                                time.sleep(0.5)
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"Login failed: {e}")
-            st.markdown("</div>", unsafe_allow_html=True)
+                with tabs[1]:
+                    with st.form("register_form"):
+                        reg_email = st.text_input("Email Address")
+                        reg_pass = st.text_input("Password", type="password")
+                        reg_submit = st.form_submit_button("Create Investigator Account", use_container_width=True, type="primary")
+                        if reg_submit:
+                            if reg_email and reg_pass:
+                                try:
+                                    res = sb.sign_up(reg_email, reg_pass)
+                                    st.success("Account created! Verify your email and login.")
+                                    inner_uid = res.user.id if res and res.user else "new"
+                                    sb.upsert_audit_log(inner_uid, "Registration", f"New account: {reg_email}")
+                                except Exception as e:
+                                    st.error(f"Failed: {e}")
+                            else:
+                                st.error("Fields required.")
+            
     else:
         # ── LOGGED IN PROFILE & LOGS ────────────────────────
         c1, c2 = st.columns([1, 2])
@@ -986,84 +1081,99 @@ elif st.session_state.page == "Account":
         email = user.email
         
         with c1:
-            st.markdown(f"""
-            <div class='section-card' style='text-align:center;'>
-              <div style='width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#16A34A,#22C55E);
-                          display:flex;align-items:center;justify-content:center;font-size:1.8rem;
-                          margin:0 auto 12px;color:#fff;'>👨</div>
-              <div style='font-weight:800;color:#16A34A;font-size:1.05rem;'>{email.split('@')[0].title()}</div>
-              <div style='font-size:.78rem;color:#6B7280;margin:4px 0 12px;'>Investigator ID: {uid[:8]}...</div>
-              <span class='tag-safe'>● Active Session</span>
-            </div>""", unsafe_allow_html=True)
+            # ── Unified Profile Card ──
+            st.markdown(f"""<div class='section-card' style='text-align:center; padding: 32px 24px; margin-bottom: 20px;'>
+<div style='width:90px; height:90px; border-radius:50%; background:linear-gradient(135deg,#16A34A,#22C55E);
+display:flex; align-items:center; justify-content:center; font-size:2.5rem;
+margin:0 auto 16px; color:#fff; box-shadow: 0 8px 24px rgba(22,163,74,0.15);'>👨‍⚕️</div>
+<div style='font-size:1.4rem; font-weight:800; color:#14532D; margin-bottom:4px;'>{email.split('@')[0].title()}</div>
+<div style='font-size:0.85rem; color:#4B5563; font-weight:500; margin-bottom:12px;'>ID: <code style='color:#16A34A;'>{uid[:8]}</code></div>
+<div style='display:inline-block; background:#DCFCE7; color:#16A34A; border:1px solid #BBF7D0; border-radius:30px; padding:4px 14px; font-size:0.75rem; font-weight:700;'>● Active Session</div>
+</div>""", unsafe_allow_html=True)
             
-            if st.button("🔓 Logout", use_container_width=True):
+            if st.button("🔓 Logout Investigator", use_container_width=True, type="primary"):
                 sb.upsert_audit_log(uid, "Logout", "Investigator session ended.")
-                
-                # Clear Global Cache
                 sid = st.query_params.get("s")
-                if sid in _global_sessions:
-                    del _global_sessions[sid]
-                
-                # Clear URL and State
+                if sid in get_session_cache(): del get_session_cache()[sid]
                 st.query_params.clear()
                 sb.sign_out()
                 st.session_state.user = None
                 st.session_state.df = None
-                st.session_state.chat_history = []
                 st.session_state.page = "Account"
-                st.success("Logged out successfully.")
-                time.sleep(.5)
                 st.rerun()
-                
+
         with c2:
-            st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-            st.markdown("🔍 **Activity History**")
+            # ── Combined Information & Activity Card ──
+            st.markdown(f"""<div class='section-card' style='padding: 30px;'>
+<div style='font-size:1.1rem; font-weight:800; color:#14532D; margin-bottom:24px; display:flex; align-items:center; gap:10px;'>
+<span style='background:#DCFCE7; width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center;'>👤</span>
+Investigator Profile & Activity
+</div>
+<div style='display:grid; grid-template-columns: 1fr 1fr; gap:24px; margin-bottom:32px; background:#F9FAFB; padding:20px; border-radius:16px; border:1px solid #E5E7EB;'>
+<div>
+<div style='font-size:0.75rem; color:#1F2937; font-weight:700; text-transform:uppercase; opacity:0.6;'>Organization</div>
+<div style='font-size:0.95rem; font-weight:700; color:#14532D;'>National Health Authority</div>
+</div>
+<div>
+<div style='font-size:0.75rem; color:#1F2937; font-weight:700; text-transform:uppercase; opacity:0.6;'>Designation</div>
+<div style='font-size:0.95rem; font-weight:700; color:#14532D;'>Lead Audit Investigator</div>
+</div>
+<div>
+<div style='font-size:0.75rem; color:#1F2937; font-weight:700; text-transform:uppercase; opacity:0.6;'>Email Address</div>
+<div style='font-size:0.95rem; font-weight:700; color:#14532D;'>{email}</div>
+</div>
+<div>
+<div style='font-size:0.75rem; color:#1F2937; font-weight:700; text-transform:uppercase; opacity:0.6;'>Verification</div>
+<div style='font-size:0.95rem; font-weight:700; color:#16A34A;'>Verified Auditor ●</div>
+</div>
+</div>
+<div style='font-size:0.95rem; font-weight:800; color:#14532D; margin-bottom:16px;'>Recent Audit Actions</div>""", unsafe_allow_html=True)
             
-            logs = sb.fetch_audit_log(uid, limit=10)
+            logs = sb.fetch_audit_log(uid, limit=8)
             if not logs:
-                st.info("No activity found for this account.")
+                st.info("No recent audit activity recorded.")
             else:
                 for l in logs:
                     st.markdown(f"""
-                    <div style='padding:12px 0; border-bottom:1px solid #DCFCE7; display:flex; justify-content:space-between; align-items:center;'>
-                        <div style='flex:1;'>
-                            <div style='font-size:.82rem; font-weight:700; color:#14532D;'>{l['action']}</div>
-                            <div style='font-size:.75rem; color:#4B5563;'>{l['description']}</div>
+                    <div style='padding:12px 0; border-bottom:1px solid #F3F4F6; display:flex; justify-content:space-between; align-items:center;'>
+                        <div>
+                            <div style='font-size:0.85rem; font-weight:700; color:#1F2937;'>{l['action']}</div>
+                            <div style='font-size:0.78rem; color:#4B5563;'>{l['description']}</div>
                         </div>
-                        <div style='font-size:.65rem; color:#6B7280; font-weight:600; background:#F9FAFB; padding:2px 8px; border-radius:12px;'>{l['ago']}</div>
+                        <div style='font-size:0.68rem; color:#1F2937; font-weight:700; background:#DCFCE7; padding:2px 10px; border-radius:12px;'>{l['ago']}</div>
                     </div>
                     """, unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            # Details
-            fields = {"Organization": "National Health Authority", "Role": "Audit Investigator",
-                      "Email": email, "Status": "Verified Auditor"}
-            st.markdown("<div class='section-card' style='margin-top:16px;'>", unsafe_allow_html=True)
-            for lbl, val in fields.items():
-                st.markdown(f"<div style='padding:10px 0;border-bottom:1px solid #DCFCE7;'><span style='font-size:.72rem;color:#6B7280;'>{lbl}</span><br><span style='font-weight:600;color:#16A34A;'>{val}</span></div>", unsafe_allow_html=True)
+            
             st.markdown("</div>", unsafe_allow_html=True)
 
 
 #  PAGE: SETTINGS
 # ============================================================
 elif st.session_state.page == "Settings":
-    st.markdown("<div style='padding:6px 0 18px;'><span style='font-size:1.2rem;font-weight:800;color:#14532D;'>Settings</span><span style='color:#6B7280;font-size:1.2rem;'> — Detection Configuration</span></div>", unsafe_allow_html=True)
+    st.markdown("<div style='padding:6px 0 18px;'><span style='font-size:1.4rem;font-weight:800;color:#14532D;'>Settings</span><span style='color:#1F2937;font-size:1.4rem;'> — Detection Configuration</span></div>", unsafe_allow_html=True)
 
-    s1,s2 = st.columns(2)
+    # ── Parameters Dashboard ──
+    st.markdown(f"""<div style='background:white; border:1px solid #E5E7EB; border-radius:20px; padding:30px; margin-bottom:25px; box-shadow: 0 4px 15px rgba(0,0,0,0.03);'>
+<div style='display:grid; grid-template-columns: 1fr 1fr; gap:40px;'>
+<div>
+<div style='font-size:1.2rem; font-weight:800; color:#14532D; margin-bottom:8px; display:flex; align-items:center; gap:8px;'>🎯 Contamination Rate</div>
+<div style='font-size:1rem; color:#4B5563; margin-bottom:20px;'>Defines the expected proportion of anomalous claims in your dataset. High rates increase sensitivity but may flag more false positives.</div>
+</div>
+<div>
+<div style='font-size:1.2rem; font-weight:800; color:#14532D; margin-bottom:8px; display:flex; align-items:center; gap:8px;'>🌲 Algorithm Complexity (Trees)</div>
+<div style='font-size:1rem; color:#4B5563; margin-bottom:20px;'>The number of Isolation Trees built for the forest. Higher values (200+) provide more stable results but increase processing time.</div>
+</div>
+</div>
+</div>""", unsafe_allow_html=True)
+
+    s1, s2 = st.columns(2)
     with s1:
-        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-        st.markdown("**🎯 Contamination Rate**")
-        st.caption("Expected proportion of fraud. Higher = more sensitive.")
-        nc = st.slider("Contamination", .01, .30, float(st.session_state.contamination), .01, format="%.2f")
-        lbl = "🟢 Conservative" if nc<.08 else "🟡 Balanced" if nc<.16 else "🔴 Aggressive"
-        st.markdown(f"Sensitivity: **{lbl}**")
-        st.markdown("</div>", unsafe_allow_html=True)
+        nc = st.slider("Detection Sensitivity (Contamination)", 0.01, 0.30, float(st.session_state.contamination), 0.01, format="%.2f", help="Adjust this based on expected fraud density.")
+        lbl = "🟢 Conservative" if nc < 0.08 else "🟡 Balanced" if nc < 0.16 else "🔴 Aggressive"
+        st.markdown(f"<div style='background:#F9FAFB; padding:10px 15px; border-radius:8px; font-size:0.95rem; color:#1F2937;'>Current Mode: <b>{lbl}</b></div>", unsafe_allow_html=True)
     with s2:
-        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-        st.markdown("**🌲 Number of Trees**")
-        st.caption("More trees = more accurate but slower. 100–300 is optimal.")
-        ne = st.slider("n_estimators", 50, 500, int(st.session_state.n_estimators), 50)
-        st.markdown("</div>", unsafe_allow_html=True)
+        ne = st.slider("Analytical Depth (n_estimators)", 50, 500, int(st.session_state.n_estimators), 50, help="Higher trees equal better precision on complex fraud.")
+        st.markdown(f"<div style='background:#F9FAFB; padding:10px 15px; border-radius:8px; font-size:0.95rem; color:#1F2937;'>Tree Depth: <b>{ne} Iterations</b></div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Apply & Re-run Pipeline", type="primary"):
@@ -1079,10 +1189,134 @@ elif st.session_state.page == "Settings":
             st.success(f"✅ Done! {st.session_state.df['Fraud_Flag'].sum()} fraud cases detected.")
             time.sleep(1); st.session_state.page="Home"; st.rerun()
 
+    # ── Technical Reference Guide ──
+    st.markdown(f"""<div class='section-card' style='margin-top:20px; padding:25px;'>
+<div style='font-size:1.2rem; font-weight:800; color:#14532D; margin-bottom:18px; display:flex; align-items:center; gap:10px;'>
+<span style='background:#DCFCE7; width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center;'>🔬</span>
+Detection Parameter Guide
+</div>
+<table style='width:100%; border-collapse:collapse; font-size:1rem;'>
+<tr style='background:#F9FAFB; border-bottom:2px solid #E5E7EB;'>
+<th style='padding:12px; text-align:left; color:#1F2937; font-weight:800;'>Parameter</th>
+<th style='padding:12px; text-align:left; color:#1F2937; font-weight:800;'>Effect of LOW Setting</th>
+<th style='padding:12px; text-align:left; color:#1F2937; font-weight:800;'>Effect of HIGH Setting</th>
+</tr>
+<tr style='border-bottom:1px solid #F3F4F6;'>
+<td style='padding:15px 12px; color:#14532D; font-weight:700;'>Contamination</td>
+<td style='padding:15px 12px; color:#4B5563;'>Fewer flags, highly verified cases. Reduces overhead.</td>
+<td style='padding:15px 12px; color:#4B5563;'>Aggressive flagging, catches subtle anomalies. Increase audits.</td>
+</tr>
+<tr style='border-bottom:1px solid #F3F4F6;'>
+<td style='padding:15px 12px; color:#14532D; font-weight:700;'>Depth (Trees)</td>
+<td style='padding:15px 12px; color:#4B5563;'>Fast execution, but flags may be less statistically stable.</td>
+<td style='padding:15px 12px; color:#4B5563;'>Robust results with minimal variance. Slower re-runs.</td>
+</tr>
+</table>
+<div style='margin-top:20px; padding:12px; background:#F0FDF4; border-radius:10px; border:1px solid #DCFCE7; display:inline-flex; align-items:center; gap:10px;'>
+<span style='font-size:1.2rem;'>💡</span>
+<span style='font-size:1rem; color:#14532D; font-weight:600;'>Recommended for NHA Audit:</span>
+<code style='background:#14532D; color:white; padding:2px 8px; border-radius:4px;'>Contamination: 0.12</code>
+<code style='background:#14532D; color:white; padding:2px 8px; border-radius:4px;'>Trees: 200</code>
+</div>
+</div>""", unsafe_allow_html=True)
+
+# ── PAGE: AI ASSISTANT (CHAT)
+# ============================================================
+elif st.session_state.page == "Chat":
     st.markdown("""
-    | Parameter | Low | High |
-    |---|---|---|
-    | **Contamination** | Fewer flags, fewer false positives | More flags, catches subtle fraud |
-    | **n_estimators** | Faster, slightly less accurate | Slower, more reliable |
-    > 💡 Recommended: Contamination = `0.12`, Trees = `200`
-    """)
+    <div style='padding:6px 0 18px;'>
+      <span style='font-size:1.8rem;font-weight:800;color:#14532D;'>Digital Assistant</span>
+      <span style='color:#196a39;font-size:1.8rem;'> — AI Forensic Auditor</span>
+    </div>""", unsafe_allow_html=True)
+    
+    # ── Chat Canvas ──
+    st.markdown("""
+    <div style='background:#fff; border:1px solid #E5E7EB; border-radius:16px; padding:25px; margin-bottom:20px; box-shadow:0 4px 12px rgba(0,0,0,0.02);'>
+        <div style='display:flex; align-items:center; gap:15px; border-bottom:1px solid #F3F4F6; padding-bottom:15px;'>
+            <div style='width:45px; height:45px; border-radius:12px; background:#DCFCE7; display:flex; align-items:center; justify-content:center; font-size:1.4rem;'>�</div>
+            <div>
+                <div style='font-size:1.3rem; font-weight:800; color:#14532D;'>MedShield Intelligence</div>
+                <div style='font-size:0.85rem; color:#16A34A; font-weight:700; letter-spacing:0.5px;'>SECURE FORENSIC PROTOCOL • ACTIVE</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Message Container
+    chat_container = st.container()
+    
+    with chat_container:
+        # Render History
+        for role, msg in st.session_state.chat_history:
+            c1, c2 = st.columns([1, 1])
+            if role == "You":
+                with c2: # Right Side
+                    with st.chat_message("user"):
+                        st.markdown(f"<div style='font-size:1.1rem; color:#1F2937; background:#F3F4F6; padding:12px; border-radius:12px; border-right:4px solid #4B5563;'>{msg}</div>", unsafe_allow_html=True)
+            else:
+                with c1: # Left Side
+                    with st.chat_message("assistant", avatar="🤖"):
+                        st.markdown(f"<div style='font-size:1.1rem; color:#1F2937; background:#DCFCE7; padding:12px; border-radius:12px; border-left:4px solid #16A34A;'>{msg}</div>", unsafe_allow_html=True)
+
+    # Dedicated Bottom Input
+    user_input = st.chat_input("Query the forensic database...")
+
+    if user_input:
+        st.session_state.chat_history.append(("You", user_input))
+        
+        # Manually render the user message immediately so it's visible while AI thinks
+        with chat_container:
+            c1, c2 = st.columns([1, 1])
+            with c2:
+                with st.chat_message("user"):
+                    st.markdown(f"<div style='font-size:1.1rem; color:#1F2937; background:#F3F4F6; padding:12px; border-radius:12px; border-right:4px solid #4B5563;'>{user_input}</div>", unsafe_allow_html=True)
+            
+            # Show "Thinking" status locally
+            with st.spinner("🧠 MedShield AI is analyzing forensic patterns..."):
+                # ── Fetch Live Context from Supabase ──
+                frauds_df = sb.fetch_detected_frauds(user_id=st.session_state.uid)
+                
+                # Prepare contextual data for the AI
+                if not frauds_df.empty:
+                    top_cases = frauds_df.head(5).to_dict(orient="records")
+                    fraud_types = frauds_df["Fraud_Type"].value_counts().to_dict()
+                    total_value = fmt_crore(frauds_df["Final_Billed_Amount"].sum())
+                    
+                    context = (
+                        f"You are the MedShield AI Forensic Auditor. The current audit queue has {len(frauds_df)} cases "
+                        f"with a total suspicious value of {total_value}. "
+                        f"Common patterns: {fraud_types}. "
+                        f"Top cases: {top_cases}. "
+                        "Answer accurately and clinically."
+                    )
+                else:
+                    context = "You are the MedShield AI Forensic Auditor. No fraud cases in queue."
+
+                # ── Generate Response via OpenAI ──
+                if _ai_client:
+                    try:
+                        messages = [{"role": "system", "content": context}]
+                        for role, msg in st.session_state.chat_history[-6:]:
+                            r = "user" if role == "You" else "assistant"
+                            messages.append({"role": r, "content": msg})
+                        
+                        resp = _ai_client.chat.completions.create(
+                            model="gpt-4",
+                            messages=messages,
+                            temperature=0.7
+                        )
+                        reply = resp.choices[0].message.content
+                    except Exception as e:
+                        reply = f"System error: {str(e)}."
+                else:
+                    responses = {
+                        "ghost": "Ghost Billing is when a hospital bills for a patient who was never admitted.",
+                        "upcode": "Up-coding involves inflating reimbursement rates.",
+                        "data": f"Currently, I see {len(frauds_df)} critical cases in the cloud database."
+                    }
+                    msg_lower = user_input.lower()
+                    reply = next((v for k, v in responses.items() if k in msg_lower),
+                                 f"Forensic DB indicates {len(frauds_df)} investigations pending. Configure OpenAI or use specific keywords.")
+
+                st.session_state.chat_history.append(("Bot", reply))
+                st.rerun()
