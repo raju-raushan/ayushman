@@ -707,38 +707,42 @@ if st.session_state.page == "Report":
         st.markdown("---")
         st.markdown(f"<p style='color:#14532D; font-weight:700; font-size:1.25rem;'>Listing {len(frauds_df)} priority investigations:</p>", unsafe_allow_html=True)
         
-        # Display Cards
-        for i, (_, row) in enumerate(frauds_df.iterrows()):
-            pid    = row.get("PatientID", "—")
-            age    = row.get("Age", "—")
-            diag   = row.get("Primary_Diagnosis", "—")
-            amt    = row.get("Final_Billed_Amount", 0)
-            risk   = row.get("Risk_Score", 0.0)
-            ftype  = row.get("Fraud_Type", "Anomalous")
-            ai     = row.get("AI_Justification", "Risk pattern detected. Manual verification required.")
-            
-            # Sanitize strings for HTML inclusion
-            s_pid  = str(pid).strip().replace("\n", " ")
-            s_diag = str(diag).strip().replace("\n", " ")
-            s_ai   = str(ai).strip().replace("\n", " ")
+        # Display Cards in a 3-column grid
+        for i in range(0, len(frauds_df), 3):
+            cols = st.columns(3)
+            for j in range(3):
+                if i + j < len(frauds_df):
+                    row = frauds_df.iloc[i + j]
+                    pid    = row.get("PatientID", "—")
+                    age    = row.get("Age", "—")
+                    diag   = row.get("Primary_Diagnosis", "—")
+                    amt    = row.get("Final_Billed_Amount", 0)
+                    risk   = row.get("Risk_Score", 0.0)
+                    ftype  = row.get("Fraud_Type", "Anomalous")
+                    ai     = row.get("AI_Justification", "Risk pattern detected. Manual verification required.")
+                    
+                    # Sanitize strings for HTML inclusion
+                    s_pid  = str(pid).strip().replace("\n", " ")
+                    s_diag = str(diag).strip().replace("\n", " ")
+                    s_ai   = str(ai).strip().replace("\n", " ")
 
-            card_html = (
-                f"<div style=\"font-family:sans-serif; background:#fff; border:2px solid #DCFCE7; border-left:6px solid #DC2626; border-radius:12px; padding:25px; box-shadow: 0 4px 12px rgba(22,163,74, 0.08);\">"
-                f"<div style=\"display:flex; justify-content:space-between; align-items:flex-start;\">"
-                f"<div><div style=\"font-size:.85rem; color:#DC2626; font-weight:700; text-transform:uppercase;\">Patient ID</div>"
-                f"<div style=\"font-size:1.3rem; font-weight:800; color:#14532D;\">{s_pid}</div></div>"
-                f"<div style=\"text-align:right;\"><div style=\"font-size:.85rem; color:#1F2937; font-weight:700; text-transform:uppercase;\">Risk Level</div>"
-                f"<div style=\"background:#DC2626; color:#fff; font-size:1rem; font-weight:800; padding:4px 15px; border-radius:20px; margin-top:4px;\">{int(risk*100)}% CRITICAL</div></div></div>"
-                f"<div style=\"display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px; margin-top:18px; padding:15px 20px; background:#FDFDFD; border-radius:10px; border:1px solid #E5E7EB;\">"
-                f"<div><div style=\"font-size:.8rem; color:#1F2937; font-weight:700;\">AGE</div><div style=\"font-size:1.1rem; font-weight:700; color:#14532D;\">{age} yrs</div></div>"
-                f"<div><div style=\"font-size:.8rem; color:#1F2937; font-weight:700;\">DISEASE / DIAGNOSIS</div><div style=\"font-size:1.1rem; font-weight:700; color:#14532D;\">{s_diag}</div></div>"
-                f"<div><div style=\"font-size:.8rem; color:#1F2937; font-weight:700;\">SUSPICIOUS AMOUNT</div><div style=\"font-size:1.1rem; font-weight:700; color:#DC2626;\">&#8377;{amt:,.2f}</div></div></div>"
-                f"<div style=\"margin-top:20px;\"><div style=\"font-size:.85rem; color:#16A34A; font-weight:800; text-transform:uppercase; margin-bottom:6px;\">&#129302; AI Risk Justification</div>"
-                f"<div style=\"font-size:1.05rem; color:#1F2937; line-height:1.6; background:#DCFCE7; padding:15px 20px; border-radius:8px; border-left:4px solid #16A34A;\">{s_ai}</div></div>"
-                f"</div>"
-            )
-            st.components.v1.html(card_html, height=310)
-            st.markdown("<div style='margin-bottom:20px;'></div>", unsafe_allow_html=True)
+                    card_html = (
+                        f"<div style=\"font-family:sans-serif; background:#fff; border:1px solid #E5E7EB; border-left:5px solid #DC2626; border-radius:12px; padding:20px; box-shadow: 0 4px 12px rgba(22,163,74, 0.05); height: 420px; overflow: hidden;\">"
+                        f"<div style=\"display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px;\">"
+                        f"<div><div style=\"font-size:.75rem; color:#DC2626; font-weight:700; text-transform:uppercase;\">Patient ID</div>"
+                        f"<div style=\"font-size:1.1rem; font-weight:800; color:#14532D;\">{s_pid}</div></div>"
+                        f"<div style=\"text-align:right;\"><div style=\"background:#DC2626; color:#fff; font-size:.7rem; font-weight:800; padding:2px 10px; border-radius:12px;\">{int(risk*100)}% RISK</div></div></div>"
+                        f"<div style=\"background:#F9FAFB; border-radius:8px; padding:12px; border:1px solid #F3F4F6; margin-bottom:15px;\">"
+                        f"<div style=\"margin-bottom:8px;\"><div style=\"font-size:.7rem; font-weight:700; color:#6B7280;\">DIAGNOSIS</div><div style=\"font-size:.85rem; font-weight:700; color:#14532D; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;\">{s_diag}</div></div>"
+                        f"<div style=\"display:flex; justify-content:space-between;\">"
+                        f"<div><div style=\"font-size:.7rem; font-weight:700; color:#6B7280;\">AGE</div><div style=\"font-size:.9rem; font-weight:700; color:#14532D;\">{age} yrs</div></div>"
+                        f"<div><div style=\"font-size:.7rem; font-weight:700; color:#6B7280; text-align:right;\">AMOUNT</div><div style=\"font-size:.9rem; font-weight:700; color:#DC2626;\">&#8377;{amt:,.0f}</div></div></div></div>"
+                        f"<div><div style=\"font-size:.75rem; color:#16A34A; font-weight:800; text-transform:uppercase; margin-bottom:5px;\">&#129302; AI Justification</div>"
+                        f"<div style=\"font-size:.85rem; color:#1F2937; line-height:1.5; background:#DCFCE7; padding:10px; border-radius:8px; border-left:3px solid #16A34A; height: 160px; overflow-y: auto;\">{s_ai}</div></div>"
+                        f"</div>"
+                    )
+                    with cols[j]:
+                        st.components.v1.html(card_html, height=440)
         
         # --- Single Master Download Button at the Bottom ---
         st.markdown("<br><hr>", unsafe_allow_html=True)
